@@ -26,8 +26,8 @@ import numpy as np
 
 class PPO(object):
     def __init__(self, state_space, action_space, max_episode_num, episode_lens, discount_factor=0.95,
-                 actor_learning_rate=1e-3, critic_learning_rate=1e-3, mini_batch_size=128, epsilon=0.2,
-                 actor_update_stpes=10, critic_update_steps=10):
+                 actor_learning_rate=1e-3, critic_learning_rate=1e-3, mini_batch_size=64, epsilon=0.2,
+                 actor_update_stpes=10, critic_update_steps=10, epochs=10):
 
         self.state_space = state_space
         self.action_space = action_space
@@ -121,20 +121,18 @@ class PPO(object):
             atrain_op = tf.train.AdamOptimizer(a_lr).minimize(aloss)
 
         def update(data):
-            [state_d, action_d, reward_d] = data
+            [state_d, action_d, adv_d, dr_d] = data
 
             sess.run(update_oldpi_op)  # copy pi to old pi
 
-            adv = sess.run(advantage_f, feed_dict={state: state_d, discounted_r: reward_d})
+            # adv = sess.run(advantage_f, feed_dict={state: state_d, discounted_r: reward_d})
 
             res1 = []
             res2 = []
             # update actor
-            for _ in range(self.actor_update_steps):
-                res1 = sess.run([aloss, atrain_op], feed_dict={state: state_d, action: action_d, advantage: adv})
-
-            for _ in range(self.critic_update_steps):
-                res2 = sess.run([closs, ctrain_op], feed_dict={state: state_d, discounted_r: reward_d})
+            index = 0
+            res1 = sess.run([aloss, atrain_op], feed_dict={state: state_d, action: action_d, advantage: adv_d})
+            res2 = sess.run([closs, ctrain_op], feed_dict={state: state_d, discounted_r: dr_d})
 
             return res1[0], res2[0]
 
