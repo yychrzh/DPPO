@@ -4,11 +4,11 @@ import matplotlib.pyplot as plt
 import gym
 from ppo import PPO
 
-EP_MAX = 1000
+EP_MAX = 5000
 EP_LEN = 200
 GAMMA = 0.9           # reward discount factor
 A_LR = 1e-4           # 0.0001  # learning rate for actor
-C_LR = 1e-3           # 0.001  # learning rate for critic
+C_LR = 2e-4           # 0.001  # learning rate for critic
 MINI_BATCH_SIZE = 64  # minimum batch size for updating PPO
 A_UPDATE_STEP = 10    # loop update operation n-steps
 C_UPDATE_STEP = 10    # loop update operation n-steps
@@ -48,7 +48,10 @@ def run(env, ppo):
 
             # update ppo
             if (time_steps + 1) % MINI_BATCH_SIZE == 0 or time_steps == EP_LEN - 1 or done is True:
-                v_s_ = ppo.get_value(state_after_action)
+                if done is True:   # terminate state, the value will be set to zero
+                    v_s_ = 0
+                else:
+                    v_s_ = ppo.get_value(state_after_action)
                 discounted_r = []
                 for r in buffer_r[::-1]:
                     v_s_ = r + GAMMA * v_s_
@@ -70,6 +73,8 @@ def run(env, ppo):
     plt.xlabel('Episode')
     plt.ylabel('Moving averaged episode reward')
     plt.show()
+
+    ppo.save_weights('121801')
 
 
 def main():
