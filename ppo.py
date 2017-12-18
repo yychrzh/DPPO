@@ -26,7 +26,8 @@ import numpy as np
 
 class PPO(object):
     def __init__(self, state_space, action_space, max_episode_num, episode_lens, discount_factor=0.95,
-                 actor_learning_rate=1e-3, critic_learning_rate=1e-3, mini_batch_size=128, epsilon=0.2):
+                 actor_learning_rate=1e-3, critic_learning_rate=1e-3, mini_batch_size=128, epsilon=0.2,
+                 actor_update_stpes=10, critic_update_steps=10):
 
         self.state_space = state_space
         self.action_space = action_space
@@ -37,6 +38,8 @@ class PPO(object):
         self.c_lr = critic_learning_rate
         self.batch_size = mini_batch_size
         self.epsilon = epsilon
+        self.actor_update_steps = actor_update_stpes
+        self.critic_update_steps = critic_update_steps
 
         self.sess = tf.Session()
 
@@ -52,9 +55,9 @@ class PPO(object):
     def create_actor_network(self, name, state, action_space, trainable=True):
         with tf.variable_scope(name):
             # two hidden layer
-            l1 = tf.layers.dense(state, 256, tf.nn.relu, trainable=trainable)
-            l2 = tf.layers.dense(l1, 128, tf.nn.relu, trainable=trainable)
-            mu = tf.layers.dense(l2, action_space, tf.nn.tanh, trainable=trainable)
+            l1 = tf.layers.dense(state, 64, tf.nn.relu, trainable=trainable)
+            l2 = tf.layers.dense(l1, 64, tf.nn.relu, trainable=trainable)
+            mu = 2*tf.layers.dense(l2, action_space, tf.nn.tanh, trainable=trainable)
             sigma = tf.layers.dense(l2, action_space, tf.nn.softplus, trainable=trainable)
             norm_dist = tf.distributions.Normal(loc=mu, scale=sigma)
         params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=name)
@@ -64,48 +67,58 @@ class PPO(object):
     def create_critic_network(self, name, state, trainable=True):
         with tf.variable_scope(name):
             # built value network
-            l1 = tf.layers.dense(state, 256, tf.nn.relu, trainable=trainable)
-            l2 = tf.layers.dense(l1, 128, tf.nn.relu, trainable=trainable)
+            l1 = tf.layers.dense(state, 64, tf.nn.relu, trainable=trainable)
+            l2 = tf.layers.dense(l1, 64, tf.nn.relu, trainable=trainable)
             value = tf.layers.dense(l2, 1)
         return value
 
     def train_step_generate(self):
         sess = self.sess
 
-        # state
+        # 0.state
         state = tf.placeholder(tf.float32, [None, self.state_space], 'state')
-        # discounted_return
-        discounted_r = tf.placeholder(tf.float32, [None, 1], 'discounted_r')
-        # built value network
-        value = create_critic_network('value', state, trainable=True)
-        # advantage function
-        advantage_f = discounter_r - value
 
-        # critic network learning rate
-        c_lr = tf.Variable(self.c_lr, name='c_lr')
+        # 1.critic
+        with tf.variable_scope('critic'):
+            # discounted_return
+            discounted_r = tf.placeholder(tf.float32, [None, 1], 'discounted_r')
+            # built value network
+            value = self.create_critic_network('value', state, trainable=True)
+            # advantage function
+            advantage_f = discounted_r - value
+            # critic network learning rate
+            c_lr = tf.Variable(self.c_lr, name='c_lr')
+            # the critic network loss
+            closs = tf.reduce_mean(tf.square(advantage_f))
+            ctrain_op = tf.train.AdamOptimizer(c_lr).minimize(closs)
 
-        # the critic network loss
-        closs = tf.reduce_mean(tf.square(advantage_f))
-        ctrain_op = tf.train.AdamOptimizer(c_lr).minimize(closs)
-
+        # 2.actor
         # built actor network
-        pi, pi_params = create_actor_network('pi', state, self.action_space, trainable=True)
-        oldpi, oldpi_params = create_actor_network('oldpi', state, self.action_space, trainable=True)
+        pi, pi_params = self.create_actor_network('pi', state, self.action_space, trainable=True)
+        oldpi, oldpi_params = self.create_actor_network('oldpi', state, self.action_space, trainable=False)
 
         # sample one action
-        sample_op = tf.squeeze(pi.sample(1), axis=0)  # operation of choosing action
-        update_oldpi_op = [oldp.assign(p) for p, oldp in zip(pi_params, oldpi_params)]
+        with tf.variable_scope('sample_action'):
+            sample_op = tf.squeeze(pi.sample(1), axis=0)  # operation of choosing action
+        with tf.variable_scope('update_oldpi'):
+            update_oldpi_op = [oldp.assign(p) for p, oldp in zip(pi_params, oldpi_params)]
 
         action = tf.placeholder(tf.float32, [None, self.action_space], 'action')
         advantage = tf.placeholder(tf.float32, [None, 1], 'advantage')
-        ratio = pi.prob(action) / (oldpi.prob(action) + 1e-5)
-        surr = ratio * advantage  # surrogate loss
 
-        # actor network learning rate
-        a_lr = tf.Variable(self.a_lr, name='a_lr')
-        # clipped surrogate objective
-        aloss = -tf.reduce_mean(tf.minimum(surr, tf.clip_by_value(ratio, 1.-self.epsilon, 1.+self.epsilon)*advantage))
-        atrain_op = tf.train.AdamOptimizer(a_lr).minimize(aloss)
+        with tf.variable_scope('loss'):
+            with tf.variable_scope('surrogate'):
+                ratio = pi.prob(action) / (oldpi.prob(action) + 1e-5)
+                surr = ratio * advantage  # surrogate loss
+
+            # actor network learning rate
+            a_lr = tf.Variable(self.a_lr, name='a_lr')
+            # clipped surrogate objective
+            aloss = -tf.reduce_mean(tf.minimum(surr, tf.clip_by_value(ratio, 1. - self.epsilon,
+                                                                      1. + self.epsilon)*advantage))
+
+        with tf.variable_scope('atrain'):
+            atrain_op = tf.train.AdamOptimizer(a_lr).minimize(aloss)
 
         def update(data):
             [state_d, action_d, reward_d] = data
@@ -114,15 +127,23 @@ class PPO(object):
 
             adv = sess.run(advantage_f, feed_dict={state: state_d, discounted_r: reward_d})
 
-            res = sess.run([aloss, closs, atrain_op, ctrain_op],
-                           feed_dict={state: state_d, action: action_d, discounted_r: reward_d, advantage: adv})
-            return res[0], res[1]
+            res1 = []
+            res2 = []
+            # update actor
+            for _ in range(self.actor_update_steps):
+                res1 = sess.run([aloss, atrain_op], feed_dict={state: state_d, action: action_d, advantage: adv})
+
+            for _ in range(self.critic_update_steps):
+                res2 = sess.run([closs, ctrain_op], feed_dict={state: state_d, discounted_r: reward_d})
+
+            return res1[0], res2[0]
 
         def choose_action(state_d):
             s = np.array(state_d)
             s = s[np.newaxis, :]
             a = sess.run(sample_op, {state: s})[0]
-            return a  # np.clip(a, 0, 1)
+            # return a  # np.clip(a, 0, 1)
+            return np.clip(a, -2, 2)
 
         def get_value(state_d):
             s = np.array(state_d)
