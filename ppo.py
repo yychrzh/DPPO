@@ -24,10 +24,17 @@ import time
 import tensorflow as tf
 import numpy as np
 
+METHOD = [
+    dict(name='kl_pen', kl_target=0.01, lam=0.5),   # KL penalty
+    dict(name='clip', epsilon=0.2),                 # Clipped surrogate objective, find this is better
+][0]        # choose the method for optimization
+
+HIDDEN_UNITS_1 = 64
+HIDDEN_UNITS_2 = 64
+
 class PPO(object):
     def __init__(self, state_space, action_space, max_episode_num, episode_lens, discount_factor=0.95,
-                 actor_learning_rate=1e-3, critic_learning_rate=1e-3, mini_batch_size=64, epsilon=0.2,
-                 actor_update_stpes=10, critic_update_steps=10, epochs=10):
+                 actor_learning_rate=1e-3, critic_learning_rate=1e-3, mini_batch_size=64, epochs=10):
 
         self.state_space = state_space
         self.action_space = action_space
@@ -36,12 +43,14 @@ class PPO(object):
         self.discount_factor = discount_factor
         self.a_lr = actor_learning_rate
         self.c_lr = critic_learning_rate
-        self.batch_size = mini_batch_size
-        self.epsilon = epsilon
-        self.actor_update_steps = actor_update_stpes
-        self.critic_update_steps = critic_update_steps
+        self.mini_batch_size = mini_batch_size
+        self.epochs = epochs
+        if METHOD['name'] == 'clip':
+            self.epsilon = METHOD[epsilon]
 
         self.sess = tf.Session()
+        self.hidden_units_1 = HIDDEN_UNITS_1
+        self.hidden_units_2 = HIDDEN_UNITS_2
 
         self.update, self.choose_action, self.get_value = self.train_step_generate()
 
@@ -49,16 +58,14 @@ class PPO(object):
 
         self.saver = tf.train.Saver(max_to_keep=1)
 
-        # self.load_weights('100301')
-
     # create action network
-    def create_actor_network(self, name, state, action_space, trainable=True):
+    def create_actor_network(self, name, state, trainable=True):
         with tf.variable_scope(name):
             # two hidden layer
-            l1 = tf.layers.dense(state, 64, tf.nn.relu, trainable=trainable)
-            l2 = tf.layers.dense(l1, 64, tf.nn.relu, trainable=trainable)
-            mu = 2*tf.layers.dense(l2, action_space, tf.nn.tanh, trainable=trainable)
-            sigma = tf.layers.dense(l2, action_space, tf.nn.softplus, trainable=trainable)
+            l1 = tf.layers.dense(state, self.hidden_units_1, tf.nn.relu, trainable=trainable)
+            l2 = tf.layers.dense(l1, self.hidden_units_2, tf.nn.relu, trainable=trainable)
+            mu = 2*tf.layers.dense(l2, self.action_space, tf.nn.tanh, trainable=trainable)
+            sigma = tf.layers.dense(l2, self.action_space, tf.nn.softplus, trainable=trainable)
             norm_dist = tf.distributions.Normal(loc=mu, scale=sigma)
         params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=name)
         return norm_dist, params
@@ -67,17 +74,15 @@ class PPO(object):
     def create_critic_network(self, name, state, trainable=True):
         with tf.variable_scope(name):
             # built value network
-            l1 = tf.layers.dense(state, 64, tf.nn.relu, trainable=trainable)
-            l2 = tf.layers.dense(l1, 64, tf.nn.relu, trainable=trainable)
+            l1 = tf.layers.dense(state, self.hidden_units_1, tf.nn.relu, trainable=trainable)
+            l2 = tf.layers.dense(l1, self.hidden_units_2, tf.nn.relu, trainable=trainable)
             value = tf.layers.dense(l2, 1)
         return value
 
     def train_step_generate(self):
         sess = self.sess
-
         # 0.state
         state = tf.placeholder(tf.float32, [None, self.state_space], 'state')
-
         # 1.critic
         with tf.variable_scope('critic'):
             # discounted_return
@@ -94,8 +99,8 @@ class PPO(object):
 
         # 2.actor
         # built actor network
-        pi, pi_params = self.create_actor_network('pi', state, self.action_space, trainable=True)
-        oldpi, oldpi_params = self.create_actor_network('oldpi', state, self.action_space, trainable=False)
+        pi, pi_params = self.create_actor_network('pi', state, trainable=True)
+        oldpi, oldpi_params = self.create_actor_network('oldpi', state, trainable=False)
 
         # sample one action
         with tf.variable_scope('sample_action'):
@@ -111,28 +116,67 @@ class PPO(object):
                 ratio = pi.prob(action) / (oldpi.prob(action) + 1e-5)
                 surr = ratio * advantage  # surrogate loss
 
+            if METHOD['name'] == 'kl_pen':
+                # kl pen objective
+                belta = tf.placeholder(tf.float32, None, 'belta')
+                kl_div = tf.distributions.kl_divergence(oldpi, pi)
+                kl_mean = tf.reduce_mean(kl_div)
+                aloss = -(tf.reduce_mean(surr - belta * kl_div))
+            else:
+                # clipped surrogate objective
+                aloss = -tf.reduce_mean(tf.minimum(
+                          surr, tf.clip_by_value(ratio, 1. - self.epsilon, 1. + self.epsilon)*advantage))
+
             # actor network learning rate
             a_lr = tf.Variable(self.a_lr, name='a_lr')
-            # clipped surrogate objective
-            aloss = -tf.reduce_mean(tf.minimum(surr, tf.clip_by_value(ratio, 1. - self.epsilon,
-                                                                      1. + self.epsilon)*advantage))
-
         with tf.variable_scope('atrain'):
             atrain_op = tf.train.AdamOptimizer(a_lr).minimize(aloss)
 
+        mini_batch_size = self.mini_batch_size
+        epochs = self.epochs
+
+        def array_data_sample(data, batch_size):  # data: list of numpy array
+            import random
+            data_lens = len(data[0])
+            index = random.sample(range(data_lens), batch_size)
+
+            batch = []
+            for i in range(len(data)):
+                sample = []
+                for j in range(batch_size):
+                    sample.append(data[i][index[j]])
+                batch.append(np.vstack(sample))
+
+            return batch
+
         def update(data):
-            [state_d, action_d, adv_d, dr_d] = data
-
+            # [state_d, action_d, adv_d, dr_d] = data
             sess.run(update_oldpi_op)  # copy pi to old pi
-
-            # adv = sess.run(advantage_f, feed_dict={state: state_d, discounted_r: reward_d})
-
             res1 = []
             res2 = []
-            # update actor
-            index = 0
-            res1 = sess.run([aloss, atrain_op], feed_dict={state: state_d, action: action_d, advantage: adv_d})
-            res2 = sess.run([closs, ctrain_op], feed_dict={state: state_d, discounted_r: dr_d})
+
+            if METHOD['name'] == 'kl_pen':
+                kl = 0
+                for _ in range(epochs):
+                    [state_d, action_d, adv_d, dr_d] = array_data_sample(data, mini_batch_size)
+                    res1 = self.sess.run(
+                        [aloss, atrain_op, kl_mean],
+                        feed_dict={state: state_d, action: action_d, advantage: adv_d, belta: METHOD['lam']})
+                    res2 = sess.run([closs, ctrain_op], feed_dict={state: state_d, discounted_r: dr_d})
+
+                    kl = res1[2]
+                    if kl > 4 * METHOD['kl_target']:  # this in in google's paper
+                        break
+                if kl < METHOD['kl_target'] / 1.5:  # adaptive lambda, this is in OpenAI's paper
+                    METHOD['lam'] /= 2
+                elif kl > METHOD['kl_target'] * 1.5:
+                    METHOD['lam'] *= 2
+                METHOD['lam'] = np.clip(METHOD['lam'], 1e-4, 10)  # sometimes explode, this clipping is my solution
+            else:
+                for _ in range(epochs):
+                    [state_d, action_d, adv_d, dr_d] = array_data_sample(data, mini_batch_size)
+                    res1 = sess.run([aloss, atrain_op], feed_dict={state: state_d, action: action_d, advantage: adv_d})
+                    res2 = sess.run([closs, ctrain_op], feed_dict={state: state_d, discounted_r: dr_d})
 
             return res1[0], res2[0]
 
