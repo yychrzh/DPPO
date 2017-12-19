@@ -148,7 +148,7 @@ def train():
                 mini_batch_size=MINI_BATCH_SIZE, epochs=EPOCHS)
 
     # load weights
-    # agent.load_weights('121803')
+    agent.load_weights('121803')
 
     # run(env, agent)
     for i in range(EP_MAX):
