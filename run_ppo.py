@@ -5,7 +5,7 @@ import gym
 import time
 from ppo import PPO
 
-EP_MAX = 2000
+EP_MAX = 4000
 EP_LEN = 128*2
 HORIZON = 128
 GAMMA = 0.99          # reward discount factor
@@ -17,11 +17,7 @@ MINI_BATCH_SIZE = 64  # minimum batch size for updating PPO
 GAME = 'Pendulum-v0'
 S_DIM = 3             # state and action dimension
 A_DIM = 1             # action dimension
-
-METHOD = 'kl_pen'     # 'clipping'
-EPSILON = 0.2         # for clipping surrogate objective
-KL_TARGET = 0.01
-KL_BELTA = 0.5
+SAVA_INDEX = '122001'
 
 
 # calculate the T time-steps advantage function A1, A2, A3, ...., AT
@@ -107,7 +103,7 @@ def test():
                 discount_factor=GAMMA, actor_learning_rate=A_LR, critic_learning_rate=C_LR,
                 mini_batch_size=MINI_BATCH_SIZE, epochs=EPOCHS)
 
-    agent.load_weights('121803')
+    agent.load_weights(SAVA_INDEX)
     # env_reset
     state = env.reset()
     print(state)
@@ -148,7 +144,7 @@ def train():
                 mini_batch_size=MINI_BATCH_SIZE, epochs=EPOCHS)
 
     # load weights
-    agent.load_weights('121803')
+    # agent.load_weights(SAVA_INDEX)
 
     # run(env, agent)
     for i in range(EP_MAX):
@@ -161,7 +157,7 @@ def train():
         else:
             all_ep_r.append(all_ep_r[-1] * 0.9 + episode_r * 0.1)
 
-    agent.save_weights('121803')
+    agent.save_weights(SAVA_INDEX)
 
     plt.plot(np.arange(len(all_ep_r)), all_ep_r)
     plt.xlabel('Episode')

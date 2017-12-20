@@ -26,11 +26,12 @@ import numpy as np
 
 METHOD = [
     dict(name='kl_pen', kl_target=0.01, lam=0.5),   # KL penalty
-    dict(name='clip', epsilon=0.2),                 # Clipped surrogate objective, find this is better
-][0]        # choose the method for optimization
+    dict(name='clip', epsilon=0.2, vf_coeff=0.5, ent_coeff=0.01),                 # Clipped surrogate objective, find this is better
+][1]        # choose the method for optimization
 
 HIDDEN_UNITS_1 = 64
 HIDDEN_UNITS_2 = 64
+
 
 class PPO(object):
     def __init__(self, state_space, action_space, max_episode_num, episode_lens, discount_factor=0.95,
@@ -46,7 +47,7 @@ class PPO(object):
         self.mini_batch_size = mini_batch_size
         self.epochs = epochs
         if METHOD['name'] == 'clip':
-            self.epsilon = METHOD[epsilon]
+            self.epsilon = METHOD['epsilon']
 
         self.sess = tf.Session()
         self.hidden_units_1 = HIDDEN_UNITS_1
@@ -95,12 +96,15 @@ class PPO(object):
             c_lr = tf.Variable(self.c_lr, name='c_lr')
             # the critic network loss
             closs = tf.reduce_mean(tf.square(advantage_f))
-            ctrain_op = tf.train.AdamOptimizer(c_lr).minimize(closs)
+            # ctrain_op = tf.train.AdamOptimizer(c_lr).minimize(closs)
 
         # 2.actor
         # built actor network
         pi, pi_params = self.create_actor_network('pi', state, trainable=True)
         oldpi, oldpi_params = self.create_actor_network('oldpi', state, trainable=False)
+
+        with tf.variable_scope('entropy_pen'):
+            entropy = pi.entropy()
 
         # sample one action
         with tf.variable_scope('sample_action'):
@@ -129,8 +133,13 @@ class PPO(object):
 
             # actor network learning rate
             a_lr = tf.Variable(self.a_lr, name='a_lr')
+        # with tf.variable_scope('atrain'):
+        #     atrain_op = tf.train.AdamOptimizer(a_lr).minimize(aloss)
+
         with tf.variable_scope('atrain'):
-            atrain_op = tf.train.AdamOptimizer(a_lr).minimize(aloss)
+            t_lr = tf.Variable((self.c_lr+self.a_lr)/2, name='t_lr')
+            total_loss = aloss + METHOD['vf_coeff'] * closs - METHOD['ent_coeff'] * entropy
+            train_op = tf.train.AdamOptimizer(t_lr).minimize(total_loss)
 
         mini_batch_size = self.mini_batch_size
         epochs = self.epochs
@@ -159,11 +168,12 @@ class PPO(object):
                 kl = 0
                 for _ in range(epochs):
                     [state_d, action_d, adv_d, dr_d] = array_data_sample(data, mini_batch_size)
-                    res1 = self.sess.run(
-                        [aloss, atrain_op, kl_mean],
-                        feed_dict={state: state_d, action: action_d, advantage: adv_d, belta: METHOD['lam']})
-                    res2 = sess.run([closs, ctrain_op], feed_dict={state: state_d, discounted_r: dr_d})
-
+                    # res1 = self.sess.run(
+                    #     [aloss, atrain_op, kl_mean],
+                    #     feed_dict={state: state_d, action: action_d, advantage: adv_d, belta: METHOD['lam']})
+                    # res2 = sess.run([closs, ctrain_op], feed_dict={state: state_d, discounted_r: dr_d})
+                    res1 = sess.run([aloss, closs, kl_mean, train_op], feed_dict={state: state_d, action: action_d,
+                                                advantage: adv_d, belta: METHOD['lam'], discounted_r: dr_d})
                     kl = res1[2]
                     if kl > 4 * METHOD['kl_target']:  # this in in google's paper
                         break
@@ -172,13 +182,17 @@ class PPO(object):
                 elif kl > METHOD['kl_target'] * 1.5:
                     METHOD['lam'] *= 2
                 METHOD['lam'] = np.clip(METHOD['lam'], 1e-4, 10)  # sometimes explode, this clipping is my solution
+                return res1[0], res1[1]
             else:
                 for _ in range(epochs):
                     [state_d, action_d, adv_d, dr_d] = array_data_sample(data, mini_batch_size)
-                    res1 = sess.run([aloss, atrain_op], feed_dict={state: state_d, action: action_d, advantage: adv_d})
-                    res2 = sess.run([closs, ctrain_op], feed_dict={state: state_d, discounted_r: dr_d})
+                    # res1 = sess.run([aloss, atrain_op], feed_dict={state: state_d,
+                    #                                                action: action_d, advantage: adv_d})
+                    # res2 = sess.run([closs, ctrain_op], feed_dict={state: state_d, discounted_r: dr_d})
 
-            return res1[0], res2[0]
+                    res1 = sess.run([aloss, closs, train_op], feed_dict={state: state_d, action: action_d,
+                                                                        advantage: adv_d, discounted_r: dr_d})
+                    return res1[0], res1[1]
 
         def choose_action(state_d):
             s = np.array(state_d)
@@ -196,11 +210,13 @@ class PPO(object):
         return update, choose_action, get_value
 
     def save_weights(self, index):
-        self.saver.save(self.sess, 'weights/'+index+'/ppo_weights')
+        # self.saver.save(self.sess, 'weights/'+index+'/ppo_weights')
+        self.saver.save(self.sess, 'weights/' + index + '/ppo_weights.ckpt')
         print('success save weights to weights/'+index+'ppo_weights')
 
     def load_weights(self, index):
-        model_file = tf.train.latest_checkpoint('weights/'+index+'/')
+        # model_file = tf.train.latest_checkpoint('weights/'+index+'/')
+        model_file = 'weights/'+index+'ppo_weights.ckpt'
         self.saver.restore(self.sess, model_file)
         print('success load weights from weights/'+index+'/ppo_weights')
 
