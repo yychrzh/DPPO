@@ -105,10 +105,10 @@ def test():
 
     agent.load_weights(SAVA_INDEX)
     # env_reset
-    state = env.reset()
-    print(state)
-    state = env.reset()
-    print(state)
+    # state = env.reset()
+    # print(state)
+    # state = env.reset()
+    # print(state)
     state = env.reset()
     print(state)
     steps = 0
@@ -144,7 +144,7 @@ def train():
                 mini_batch_size=MINI_BATCH_SIZE, epochs=EPOCHS)
 
     # load weights
-    # agent.load_weights(SAVA_INDEX)
+    agent.load_weights(SAVA_INDEX)
 
     # run(env, agent)
     for i in range(EP_MAX):

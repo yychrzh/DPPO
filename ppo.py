@@ -1,3 +1,7 @@
+import time
+import tensorflow as tf
+import numpy as np
+
 """
 A simple version of OpenAI's Proximal Policy Optimization (PPO). [https://arxiv.org/abs/1707.06347]
 Distributing workers in parallel to collect data, then stop worker's roll-out and train PPO on collected data.
@@ -20,13 +24,9 @@ r: reward
 a single threading version revised by rzh
 """
 
-import time
-import tensorflow as tf
-import numpy as np
-
 METHOD = [
     dict(name='kl_pen', kl_target=0.01, lam=0.5),   # KL penalty
-    dict(name='clip', epsilon=0.2, vf_coeff=0.5, ent_coeff=0.01),                 # Clipped surrogate objective, find this is better
+    dict(name='clip', epsilon=0.2, vf_coeff=0.5, ent_coeff=0.01),    # Clipped surrogate objective, find this is better
 ][1]        # choose the method for optimization
 
 HIDDEN_UNITS_1 = 64
@@ -104,7 +104,7 @@ class PPO(object):
         oldpi, oldpi_params = self.create_actor_network('oldpi', state, trainable=False)
 
         with tf.variable_scope('entropy_pen'):
-            entropy = pi.entropy()
+            entropy = tf.reduce_mean(pi.entropy())
 
         # sample one action
         with tf.variable_scope('sample_action'):
@@ -216,7 +216,7 @@ class PPO(object):
 
     def load_weights(self, index):
         # model_file = tf.train.latest_checkpoint('weights/'+index+'/')
-        model_file = 'weights/'+index+'ppo_weights.ckpt'
+        model_file = 'weights/'+index+'/ppo_weights.ckpt'
         self.saver.restore(self.sess, model_file)
         print('success load weights from weights/'+index+'/ppo_weights')
 

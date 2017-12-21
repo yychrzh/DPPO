@@ -1,2 +1,2 @@
-model_checkpoint_path: "ppo_weights.ckpt"
-all_model_checkpoint_paths: "ppo_weights.ckpt"
+model_checkpoint_path: "ppo_weights"
+all_model_checkpoint_paths: "ppo_weights"
