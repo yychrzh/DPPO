@@ -5,8 +5,8 @@ import gym
 import time
 from ppo import PPO
 
-EP_MAX = 4000
-EP_LEN = 128*2
+EP_MAX = 6000
+EP_LEN = 128 * 2
 HORIZON = 128
 GAMMA = 0.99          # reward discount factor
 LAMDA = 1
@@ -17,7 +17,7 @@ MINI_BATCH_SIZE = 64  # minimum batch size for updating PPO
 GAME = 'Pendulum-v0'
 S_DIM = 3             # state and action dimension
 A_DIM = 1             # action dimension
-SAVA_INDEX = '122001'
+SAVA_INDEX = '122103'
 
 
 # calculate the T time-steps advantage function A1, A2, A3, ...., AT
@@ -131,6 +131,7 @@ def test():
     plt.xlabel('state')
     plt.ylabel('state value')
     plt.show()
+    plt.savefig('weights/'+index+'/figure/fig.png')
 
     print("test 1000 steps, got reward: %i" % episode_r)
 
@@ -144,7 +145,7 @@ def train():
                 mini_batch_size=MINI_BATCH_SIZE, epochs=EPOCHS)
 
     # load weights
-    agent.load_weights(SAVA_INDEX)
+    # agent.load_weights(SAVA_INDEX)
 
     # run(env, agent)
     for i in range(EP_MAX):

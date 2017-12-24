@@ -25,8 +25,8 @@ a single threading version revised by rzh
 """
 
 METHOD = [
-    dict(name='kl_pen', kl_target=0.01, lam=0.5),   # KL penalty
-    dict(name='clip', epsilon=0.2, vf_coeff=0.5, ent_coeff=0.01),    # Clipped surrogate objective, find this is better
+    dict(name='kl_pen', kl_target=0.01, lam=0.5, vf_coeff=0.5, ent_coeff=0.01),   # KL penalty
+    dict(name='clip', epsilon=0.2, vf_coeff=0.5, ent_coeff=0.0),    # Clipped surrogate objective, find this is better
 ][1]        # choose the method for optimization
 
 HIDDEN_UNITS_1 = 64
@@ -96,7 +96,7 @@ class PPO(object):
             c_lr = tf.Variable(self.c_lr, name='c_lr')
             # the critic network loss
             closs = tf.reduce_mean(tf.square(advantage_f))
-            # ctrain_op = tf.train.AdamOptimizer(c_lr).minimize(closs)
+            ctrain_op = tf.train.AdamOptimizer(c_lr).minimize(closs)
 
         # 2.actor
         # built actor network
@@ -122,10 +122,10 @@ class PPO(object):
 
             if METHOD['name'] == 'kl_pen':
                 # kl pen objective
-                belta = tf.placeholder(tf.float32, None, 'belta')
+                beta = tf.placeholder(tf.float32, None, 'belta')
                 kl_div = tf.distributions.kl_divergence(oldpi, pi)
                 kl_mean = tf.reduce_mean(kl_div)
-                aloss = -(tf.reduce_mean(surr - belta * kl_div))
+                aloss = -(tf.reduce_mean(surr - beta * kl_div))
             else:
                 # clipped surrogate objective
                 aloss = -tf.reduce_mean(tf.minimum(
@@ -133,13 +133,13 @@ class PPO(object):
 
             # actor network learning rate
             a_lr = tf.Variable(self.a_lr, name='a_lr')
-        # with tf.variable_scope('atrain'):
-        #     atrain_op = tf.train.AdamOptimizer(a_lr).minimize(aloss)
+        with tf.variable_scope('atrain'):
+            atrain_op = tf.train.AdamOptimizer(a_lr).minimize(aloss)
 
         with tf.variable_scope('atrain'):
             t_lr = tf.Variable((self.c_lr+self.a_lr)/2, name='t_lr')
             total_loss = aloss + METHOD['vf_coeff'] * closs - METHOD['ent_coeff'] * entropy
-            train_op = tf.train.AdamOptimizer(t_lr).minimize(total_loss)
+            # train_op = tf.train.AdamOptimizer(t_lr).minimize(total_loss)
 
         mini_batch_size = self.mini_batch_size
         epochs = self.epochs
@@ -168,12 +168,12 @@ class PPO(object):
                 kl = 0
                 for _ in range(epochs):
                     [state_d, action_d, adv_d, dr_d] = array_data_sample(data, mini_batch_size)
-                    # res1 = self.sess.run(
-                    #     [aloss, atrain_op, kl_mean],
-                    #     feed_dict={state: state_d, action: action_d, advantage: adv_d, belta: METHOD['lam']})
-                    # res2 = sess.run([closs, ctrain_op], feed_dict={state: state_d, discounted_r: dr_d})
-                    res1 = sess.run([aloss, closs, kl_mean, train_op], feed_dict={state: state_d, action: action_d,
-                                                advantage: adv_d, belta: METHOD['lam'], discounted_r: dr_d})
+                    res1 = self.sess.run(
+                         [aloss, atrain_op, kl_mean],
+                         feed_dict={state: state_d, action: action_d, advantage: adv_d, belta: METHOD['lam']})
+                    res2 = sess.run([closs, ctrain_op], feed_dict={state: state_d, discounted_r: dr_d})
+                    # res1 = sess.run([aloss, closs, kl_mean, train_op], feed_dict={state: state_d, action: action_d,
+                    #                            advantage: adv_d, beta: METHOD['lam'], discounted_r: dr_d})
                     kl = res1[2]
                     if kl > 4 * METHOD['kl_target']:  # this in in google's paper
                         break
@@ -182,17 +182,17 @@ class PPO(object):
                 elif kl > METHOD['kl_target'] * 1.5:
                     METHOD['lam'] *= 2
                 METHOD['lam'] = np.clip(METHOD['lam'], 1e-4, 10)  # sometimes explode, this clipping is my solution
-                return res1[0], res1[1]
+                return res1[0], res2[0]
             else:
                 for _ in range(epochs):
                     [state_d, action_d, adv_d, dr_d] = array_data_sample(data, mini_batch_size)
-                    # res1 = sess.run([aloss, atrain_op], feed_dict={state: state_d,
-                    #                                                action: action_d, advantage: adv_d})
-                    # res2 = sess.run([closs, ctrain_op], feed_dict={state: state_d, discounted_r: dr_d})
+                    res1 = sess.run([aloss, atrain_op], feed_dict={state: state_d,
+                                                                    action: action_d, advantage: adv_d})
+                    res2 = sess.run([closs, ctrain_op], feed_dict={state: state_d, discounted_r: dr_d})
 
-                    res1 = sess.run([aloss, closs, train_op], feed_dict={state: state_d, action: action_d,
-                                                                        advantage: adv_d, discounted_r: dr_d})
-                    return res1[0], res1[1]
+                    # res1 = sess.run([aloss, closs, train_op], feed_dict={state: state_d, action: action_d,
+                    #                                                    advantage: adv_d, discounted_r: dr_d})
+                    return res1[0], res2[0]
 
         def choose_action(state_d):
             s = np.array(state_d)
