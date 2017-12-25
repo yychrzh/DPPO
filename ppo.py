@@ -147,6 +147,8 @@ class PPO(object):
         def array_data_sample(data, batch_size):  # data: list of numpy array
             import random
             data_lens = len(data[0])
+            batch_size = data_lens if data_lens > batch_size else int(data_lens/2)
+
             index = random.sample(range(data_lens), batch_size)
 
             batch = []
