@@ -46,5 +46,16 @@ def test():
     # print(batch)
 
 
-a = [[[1, 2], [2, 3], [3, 4]], [[2, 3], [3, 4], [4, 5]]]
-b = a[0]
+def gym_game_space():
+    import gym
+
+    env = gym.make('MountainCar-v0')
+    env = env.unwrapped
+
+    print(env.action_space)
+    print(env.observation_space)
+    print(env.observation_space.high)
+    print(env.observation_space.low)
+
+gym_game_space()
+

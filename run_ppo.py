@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import gym
 import time
+import os
 from ppo import PPO
 
 EP_MAX = 6000
@@ -17,8 +18,15 @@ MINI_BATCH_SIZE = 64  # minimum batch size for updating PPO
 GAME = 'Pendulum-v0'
 S_DIM = 3             # state and action dimension
 A_DIM = 1             # action dimension
-SAVA_INDEX = '122103'
+SAVE_INDEX = '122602'
 
+
+def create_path(path):
+    abs_path = os.path.abspath('.')
+    save_path = os.path.join(abs_path, path)
+    isExists = os.path.exists(save_path)
+    if not isExists:
+        os.makedirs(save_path)
 
 # calculate the T time-steps advantage function A1, A2, A3, ...., AT
 def calculate_advantage(ppo, trajectory):
@@ -103,7 +111,7 @@ def test():
                 discount_factor=GAMMA, actor_learning_rate=A_LR, critic_learning_rate=C_LR,
                 mini_batch_size=MINI_BATCH_SIZE, epochs=EPOCHS)
 
-    agent.load_weights(SAVA_INDEX)
+    agent.load_weights(SAVE_INDEX)
     # env_reset
     # state = env.reset()
     # print(state)
@@ -116,7 +124,7 @@ def test():
     all_value = []
 
     while steps < 1000:
-        env.render()
+        # env.render()
         # get action
         action = agent.choose_action(state)
         # execute one action
@@ -131,7 +139,9 @@ def test():
     plt.xlabel('state')
     plt.ylabel('state value')
     plt.show()
-    plt.savefig('weights/'+index+'/figure/fig.png')
+
+    create_path('figure/'+SAVE_INDEX+'/figure')
+    plt.savefig('weights/'+SAVE_INDEX+'/figure/fig.png')
 
     print("test 1000 steps, got reward: %i" % episode_r)
 
@@ -145,7 +155,7 @@ def train():
                 mini_batch_size=MINI_BATCH_SIZE, epochs=EPOCHS)
 
     # load weights
-    # agent.load_weights(SAVA_INDEX)
+    # agent.load_weights(SAVE_INDEX)
 
     # run(env, agent)
     for i in range(EP_MAX):
@@ -158,11 +168,15 @@ def train():
         else:
             all_ep_r.append(all_ep_r[-1] * 0.9 + episode_r * 0.1)
 
-    agent.save_weights(SAVA_INDEX)
+    # create_path('weights/' + SAVE_INDEX)
+    agent.save_weights(SAVE_INDEX)
 
     plt.plot(np.arange(len(all_ep_r)), all_ep_r)
     plt.xlabel('Episode')
     plt.ylabel('Moving averaged episode reward')
+
+    create_path('weights/' + SAVE_INDEX + '/figure')
+    plt.savefig('weights/' + SAVE_INDEX + '/figure/fig.png')
     plt.show()
 
 

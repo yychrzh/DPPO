@@ -10,7 +10,7 @@ The global PPO updating rule is adopted from DeepMind's paper (DPPO):
 Emergence of Locomotion Behaviours in Rich Environments (Google Deepmind): [https://arxiv.org/abs/1707.02286]
 View more on my tutorial website: https://morvanzhou.github.io/tutorials
 Dependencies:
-tensorflow r1.3
+tensorflow r1.4
 gym 0.9.2
 
 s: state
@@ -80,6 +80,31 @@ class PPO(object):
             value = tf.layers.dense(l2, 1)
         return value
 
+    # create action network
+    def create_policy_network(self, name, state, trainable=True):
+        with tf.variable_scope(name):
+            # two hidden layer
+            l1 = tf.contrib.layers.fully_connected(state, self.hidden_units_1, tf.nn.relu, trainable=trainable)
+            l1_n = tf.contrib.layers.layer_norm(l1, trainable=trainable)
+            l2 = tf.contrib.layers.fully_connected(l1_n, self.hidden_units_2, tf.nn.relu, trainable=trainable)
+            l2_n = tf.contrib.layers.layer_norm(l2, trainable=trainable)
+            mu = 2 * tf.contrib.layers.fully_connected(l2_n, self.action_space, tf.nn.tanh, trainable=trainable)
+            sigma = tf.contrib.layers.fully_connected(l2_n, self.action_space, tf.nn.softplus, trainable=trainable)
+            norm_dist = tf.distributions.Normal(loc=mu, scale=sigma)
+        params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=name)
+        return norm_dist, params
+
+    # create value network
+    def create_value_network(self, name, state, trainable=True):
+        with tf.variable_scope(name):
+            # built value network
+            l1 = tf.contrib.layers.fully_connected(state, self.hidden_units_1, tf.nn.relu, trainable=trainable)
+            l1_n = tf.contrib.layers.layer_norm(l1, trainable=trainable)
+            l2 = tf.contrib.layers.fully_connected(l1_n, self.hidden_units_2, tf.nn.relu, trainable=trainable)
+            l2_n = tf.contrib.layers.layer_norm(l2, trainable=trainable)
+            value = tf.contrib.layers.fully_connected(l2_n, 1)
+        return value
+
     def train_step_generate(self):
         sess = self.sess
         # 0.state
@@ -90,6 +115,7 @@ class PPO(object):
             discounted_r = tf.placeholder(tf.float32, [None, 1], 'discounted_r')
             # built value network
             value = self.create_critic_network('value', state, trainable=True)
+            # value = self.create_value_network('value', state, trainable=True)
             # advantage function
             advantage_f = discounted_r - value
             # critic network learning rate
@@ -102,6 +128,8 @@ class PPO(object):
         # built actor network
         pi, pi_params = self.create_actor_network('pi', state, trainable=True)
         oldpi, oldpi_params = self.create_actor_network('oldpi', state, trainable=False)
+        # pi, pi_params = self.create_policy_network('pi', state, trainable=True)
+        # oldpi, oldpi_params = self.create_policy_network('oldpi', state, trainable=False)
 
         with tf.variable_scope('entropy_pen'):
             entropy = tf.reduce_mean(pi.entropy())
