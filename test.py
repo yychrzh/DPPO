@@ -52,6 +52,13 @@ def gym_game_space():
     env = gym.make('MountainCar-v0')
     env = env.unwrapped
 
+    observation = env.reset()
+    action = env.action_space.sample()
+    print(action)
+    observation, reward, done, info = env.step(action)
+    print(observation)
+    print(reward)
+
     print(env.action_space)
     print(env.observation_space)
     print(env.observation_space.high)
