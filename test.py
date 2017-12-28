@@ -32,7 +32,7 @@ def array_data_sample(data, batch_size):  # data: list of numpy array
 def test():
     sli = [[1, 2, 3], [4, 5, 6], [7, 8, 9], [10, 11, 12], [13, 14, 15], [16, 17, 18]]
     nsli = np.vstack(sli)  # np.array(sli)[:, np.newaxis]
-    # print(nsli)
+    print(nsli)
     ali = [[1, 2], [4, 5], [7, 8], [10, 11], [13, 14], [16, 17]]
     nali = np.vstack(ali)
     rli = [1, 2, 3, 4, 5, 6]
@@ -43,7 +43,15 @@ def test():
     data = [nsli, nali, nrli]
 
     batch = array_data_sample(data, 3)
-    # print(batch)
+    print(batch)
+
+def test1():
+    sli = [[1, 2, 3], [4, 5, 6], [7, 8, 9], [10, 11, 12], [13, 14, 15], [16, 17, 18]]
+    sli1 = np.concatenate(sli, 0)
+    print(sli1)
+
+def test2():
+    o = [[1,2,3], []]
 
 
 def gym_game_space():
@@ -64,5 +72,5 @@ def gym_game_space():
     print(env.observation_space.high)
     print(env.observation_space.low)
 
-gym_game_space()
+test1()
 
