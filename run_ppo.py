@@ -5,6 +5,7 @@ import gym
 import time
 import os
 from ppo import PPO
+from rpm import rpm
 
 EP_MAX = 6000
 EP_LEN = 128 * 2
@@ -27,6 +28,7 @@ def create_path(path):
     isExists = os.path.exists(save_path)
     if not isExists:
         os.makedirs(save_path)
+
 
 # calculate the T time-steps advantage function A1, A2, A3, ...., AT
 def calculate_advantage(ppo, trajectory):
@@ -53,7 +55,7 @@ def calculate_advantage(ppo, trajectory):
 
 
 # execute the env for one episode, got the trajectory and train on it
-def execute_one_episode(env, ppo):
+def execute_one_episode(env, ppo, memory):
     time_steps = 0
     episode_r = 0
     aloss = 0
@@ -76,6 +78,8 @@ def execute_one_episode(env, ppo):
             action = ppo.choose_action(state)
             # execute one action
             state_after_action, reward, done, _ = env.step(action)
+
+            memory.add((state, action, reward, state_after_action, done))
 
             buffer_s.append(state)
             buffer_a.append(action)
@@ -149,6 +153,7 @@ def test():
 def train():
     env = gym.make(GAME).unwrapped
     all_ep_r = []
+    memory = rpm(1000000)
 
     agent = PPO(state_space=S_DIM, action_space=A_DIM, max_episode_num=EP_MAX, episode_lens=EP_LEN,
                 discount_factor=GAMMA, actor_learning_rate=A_LR, critic_learning_rate=C_LR,
@@ -159,7 +164,7 @@ def train():
 
     # run(env, agent)
     for i in range(EP_MAX):
-        [steps, episode_r, c_time, aloss, closs] = execute_one_episode(env, agent)
+        [steps, episode_r, c_time, aloss, closs] = execute_one_episode(env, agent, memory)
         print('Ep: %4d' % i, "|Ep_r: %i" % episode_r, '|aloss: %8.4f' % aloss, '|closs: %8.4f' % closs,
               '|steps: %4d' % steps, '|time: %6.4f' % c_time)
 
